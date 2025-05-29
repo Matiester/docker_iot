@@ -82,11 +82,12 @@ def login():
 @app.route('/')
 @require_login
 def index():
+    theme = request.args.get("theme", "light")
     cur = mysql.connection.cursor()
     cur.execute('SELECT * FROM contactos')
     datos = cur.fetchall()
     cur.close()
-    return render_template('index.html', contactos = datos)
+    return render_template('index.html', contactos = datos,theme=theme)
 
 @app.route('/add_contact', methods=['POST'])
 @require_login
@@ -145,3 +146,4 @@ def logout():
     session.clear()
     logging.info("el usuario {} cerró su sesión".format(session.get("user_id")))
     return redirect(url_for('index'))
+
