@@ -118,6 +118,11 @@ services:
       context: ./crud
     container_name: crud
     environment:
+      - SERVIDOR=${SERVIDOR}
+      - TOPICO=${TOPICO}
+      - MQTT_USR=${MQTT_USR}
+      - MQTT_PASS=${MQTT_PASS}
+      - PUERTO_MQTTS=${PUERTO_MQTTS}
       - MYSQL_USER=${CRUD_USER}
       - MYSQL_PASSWORD=${CRUD_PASS}
       - MYSQL_DB=${CRUD_DB}

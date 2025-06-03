@@ -1,56 +1,56 @@
-{% extends "layout.html" %}
-{% block body %}
-<div class="row">
+
+<div class="row mt-4">
   <div class="col-md-7 mx-auto">
     <div class="card card-body">
-      <form action="{{url_for('add_contact')}}" method="POST">
-        <legend>Cargar contacto</legend>
-        <div class="form-group">
-          <label class="col-form-label mt-4" for="inputDefault">Nombre completo</label>
-          <input type="text" class="form-control" id="inputDefault" data-ddg-inputtype="unknown" name="nombre">
+      <form action="{{ url_for('send_mqtt_command') }}" method="POST" id="mqttCommandForm">
+        <legend>Enviar Comando MQTT</legend>
+        
+        <div class="form-group mb-3">
+          <label for="nodo_seleccionado" class="form-label">Seleccionar Nodo:</label>
+          <select class="form-select" id="nodo_seleccionado" name="nodo_seleccionado" required>
+            <option value="" disabled selected>-- Elige un nodo --</option>
+            {% for nodo in nodos_mqtt %}
+            <option value="{{ nodo.0 }}">{{ nodo.0 }}</option>
+            {% endfor %}
+          </select>
         </div>
-        <div class="form-group">
-          <label class="col-form-label mt-4" for="tel">Teléfono</label>
-          <input type="tel" class="form-control" id="tel" data-ddg-inputtype="unknown" name="tel">
+
+        <div class="form-group mb-3">
+          <label for="comando_mqtt" class="form-label">Seleccionar Comando:</label>
+          <select class="form-select" id="comando_mqtt" name="comando_mqtt" required>
+            <option value="" disabled selected>-- Elige un comando --</option>
+            <option value="destello">Destello</option>
+            <option value="setpoint">Setpoint</option>
+          </select>
         </div>
-        <div class="form-group">
-          <label for="email" class="form-label mt-4">Email</label>
-          <input type="email" name="email" class="form-control" id="email" aria-describedby="emailHelp"
-            data-ddg-inputtype="identities.emailAddress" data-ddg-autofill="true">
-          <small id="emailHelp" class="form-text text-muted">We'll never share your email with anyone else.</small>
+
+        <div class="form-group mb-3" id="setpoint_input_div" style="display: none;">
+          <label for="setpoint_valor" class="form-label">Indique el tiempo en segundos:</label>
+          <input type="number" class="form-control" id="setpoint_valor" name="setpoint_valor" placeholder="Ej: 60">
         </div>
-        <button type="submit" class="btn btn-primary mt-4">guardar</button>
+        
+        <button type="submit" class="btn btn-info mt-2">Enviar Comando MQTT</button>
       </form>
     </div>
   </div>
 </div>
-<div class="row pt-5 ">
-  <div class="col-md-7 mx-auto">
-    <table class="table table-hover table-default">
-      <thead>
-        <tr>
-          <th scope="col">ID</th>
-          <th scope="col">Nombre completo</th>
-          <th scope="col">Teléfono</th>
-          <th scope="col">Email</th>
-          <th scope="col">acción</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for contacto in contactos %}
-        <tr>
-          <td>{{contacto.0}}</td>
-          <td>{{contacto.1}}</td>
-          <td>{{contacto.2}}</td>
-          <td>{{contacto.3}}</td>
-          <td>
-            <a href="{{url_for('conseguir_contacto',id=contacto.0)}}" class="btn btn-secondary">editar</a>
-            <a href="{{url_for('borrar_contacto',id=contacto.0)}}" class="btn btn-danger btn-borrar">borrar</a>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-{% endblock %}
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const comandoSelect = document.getElementById('comando_mqtt');
+    const setpointDiv = document.getElementById('setpoint_input_div');
+    const setpointInput = document.getElementById('setpoint_valor');
+
+    comandoSelect.addEventListener('change', function() {
+      if (this.value === 'setpoint') {
+        setpointDiv.style.display = 'block';
+        setpointInput.required = true; // Hacerlo requerido si es visible
+      } else {
+        setpointDiv.style.display = 'none';
+        setpointInput.required = false; // No requerido si está oculto
+        setpointInput.value = ''; // Limpiar valor si se oculta
+      }
+    });
+  });
+</script>
+

@@ -22,7 +22,7 @@
       <a class="navbar-brand" href="#">CRUD</a>
       {% if session.get("user_id") %}
       <div class="d-flex align-items-center gap-3">
-        {% if request.endpoint not in ['login', 'register'] %}
+        {% if request.endpoint not in ['login', 'registrar'] %}
         <form method="get" action="" class="d-flex align-items-center">
           <select name="theme" onchange="this.form.submit()" class="form-select form-select-sm">
             <option value="light" {% if theme == 'light' %}selected{% endif %}>Claro</option>

@@ -1,9 +1,13 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from flask_mysqldb import MySQL
-import os, logging
+import os
+import logging
 from functools import wraps
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
+import aiomqtt,ssl # <--- AGREGADO
+import asyncio # <--- AGREGADO
+import json # <--- AGREGADO para el payload MQTT
 
 logging.basicConfig(format='%(asctime)s - CRUD - %(levelname)s - %(message)s', level=logging.INFO)
 
@@ -13,13 +17,20 @@ app.wsgi_app = ProxyFix(
     app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1
 )
 
-app.secret_key = os.environ["FLASK_SECRET_KEY"]
-app.config["MYSQL_USER"] = os.environ["MYSQL_USER"]
-app.config["MYSQL_PASSWORD"] = os.environ["MYSQL_PASSWORD"]
-app.config["MYSQL_DB"] = os.environ["MYSQL_DB"]
-app.config["MYSQL_HOST"] = os.environ["MYSQL_HOST"]
-app.config['PERMANENT_SESSION_LIFETIME']=180
+# Configuración de la aplicación (variables de entorno)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "default_secret_key_for_dev") # Agregado default por si no está
+app.config["MYSQL_USER"] = os.environ.get("MYSQL_USER")
+app.config["MYSQL_PASSWORD"] = os.environ.get("MYSQL_PASSWORD")
+app.config["MYSQL_DB"] = os.environ.get("MYSQL_DB")
+app.config["MYSQL_HOST"] = os.environ.get("MYSQL_HOST")
+app.config['PERMANENT_SESSION_LIFETIME'] = 180
 mysql = MySQL(app)
+
+# Variables de entorno MQTT (cargadas una vez)
+MQTT_SERVER = os.environ.get("SERVIDOR")
+MQTT_USERNAME = os.environ.get("MQTT_USR")
+MQTT_PASSWORD = os.environ.get("MQTT_PASS")
+MQTT_PORT = int(os.environ.get("PUERTO_MQTTS", 8883)) # Puerto MQTTS por defecto 8883
 
 # rutas
 
@@ -79,71 +90,74 @@ def login():
                 return redirect(url_for('login'))
     return render_template('login.html')
 
-@app.route('/')
-@require_login
-def index():
-    theme = request.args.get("theme", "light")
-    cur = mysql.connection.cursor()
-    cur.execute('SELECT * FROM contactos')
-    datos = cur.fetchall()
-    cur.close()
-    return render_template('index.html', contactos = datos,theme=theme)
-
-@app.route('/add_contact', methods=['POST'])
-@require_login
-def add_contact():
-    if request.method == 'POST':
-        nombre = request.form['nombre']
-        tel = request.form['tel']
-        email = request.form['email']
-        cur = mysql.connection.cursor()
-        cur.execute("INSERT INTO contactos (nombre, tel, email) VALUES (%s,%s,%s)"
-                    , (nombre, tel, email))
-        if mysql.connection.affected_rows():
-            flash('Se agregó un contacto')  # usa sesión
-            logging.info("se agregó un contacto")
-            mysql.connection.commit()
-    return redirect(url_for('index'))
-
-@app.route('/borrar/<string:id>', methods = ['GET'])
-@require_login
-def borrar_contacto(id):
-    cur = mysql.connection.cursor()
-    cur.execute('DELETE FROM contactos WHERE id = {0}'.format(id))
-    if mysql.connection.affected_rows():
-        flash('Se eliminó un contacto')  # usa sesión
-        logging.info("se eliminó un contacto")
-        mysql.connection.commit()
-    return redirect(url_for('index'))
-
-@app.route('/editar/<id>', methods = ['GET'])
-@require_login
-def conseguir_contacto(id):
-    cur = mysql.connection.cursor()
-    cur.execute('SELECT * FROM contactos WHERE id = %s', (id,))
-    datos = cur.fetchone()
-    logging.info(datos)
-    return render_template('editar-contacto.html', contacto = datos)
-
-@app.route('/actualizar/<id>', methods=['POST'])
-@require_login
-def actualizar_contacto(id):
-    if request.method == 'POST':
-        nombre = request.form['nombre']
-        tel = request.form['tel']
-        email = request.form['email']
-        cur = mysql.connection.cursor()
-        cur.execute("UPDATE contactos SET nombre=%s, tel=%s, email=%s WHERE id=%s", (nombre, tel, email, id))
-    if mysql.connection.affected_rows():
-        flash('Se actualizó un contacto')  # usa sesión
-        logging.info("se actualizó un contacto")
-        mysql.connection.commit()
-    return redirect(url_for('index'))
-
 @app.route("/logout")
 @require_login
 def logout():
+    user = session.get("user_id", "desconocido")
     session.clear()
-    logging.info("el usuario {} cerró su sesión".format(session.get("user_id")))
+    logging.info(f"El usuario {user} cerró su sesión")
+    flash('Has cerrado sesión.', 'info')
+    return redirect(url_for('login')) # Redirigir a login tras logout
+
+
+# --- NUEVA RUTA PARA COMANDOS MQTT ---
+@app.route('/send_mqtt_command', methods=['POST'])
+@require_login
+def send_mqtt_command():
+    if not all([MQTT_SERVER, MQTT_USERNAME, MQTT_PASSWORD, MQTT_PORT]):
+        flash("La configuración MQTT no está completa en el servidor.", "danger")
+        logging.error("Faltan variables de entorno para la conexión MQTT.")
+        return redirect(url_for('index'))
+
+    selected_node = request.form.get('nodo_seleccionado')
+    command_type = request.form.get('comando_mqtt')
+    setpoint_value = request.form.get('setpoint_valor', '')
+    data = 1
+
+    if not selected_node or not command_type:
+        flash("Debe seleccionar un nodo y un tipo de comando.", "warning")
+        return redirect(url_for('index'))
+
+    if command_type == "setpoint":
+        if not setpoint_value:
+            flash("Debe indicar un valor para Setpoint.", "warning")
+            return redirect(url_for('index'))
+        try:
+            data = int(setpoint_value)
+        except ValueError:
+            flash("El valor de Setpoint debe ser un número entero.", "warning")
+            return redirect(url_for('index'))
+
+
+    tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    tls_context.verify_mode = ssl.CERT_REQUIRED
+    tls_context.check_hostname = True
+    tls_context.load_default_certs()
+    async def mqtt_publish():
+        async with aiomqtt.Client(
+            hostname=MQTT_SERVER,
+            port=MQTT_PORT,
+            username=MQTT_USERNAME,
+            password=MQTT_PASSWORD,
+            tls_context=tls_context,
+        ) as client:
+            logging.info(f"Conectando a MQTT Broker: {MQTT_SERVER}:{MQTT_PORT}")
+            await client.publish(selected_node+"/"+command_type, data, qos=1)
+            logging.info(f"Comando MQTT enviado: {command_type} a {selected_node}/{command_type} con valor {data}")
+
+
+    try:
+        asyncio.run(mqtt_publish())
+        flash(f"Comando '{command_type}' enviado a nodo '{selected_node}' vía MQTT.", "success")
+    except aiomqtt.MqttError as e:
+        flash(f"Error al enviar comando MQTT: {e}", "danger")
+        logging.error(f"Error MQTT: {e}")
+    except Exception as e:
+        flash(f"Error inesperado: {e}", "danger")
+        logging.error(f"Error inesperado: {e}")
+
     return redirect(url_for('index'))
 
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=8000)
