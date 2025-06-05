@@ -5,9 +5,8 @@ import logging
 from functools import wraps
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
-import aiomqtt,ssl # <--- AGREGADO
-import asyncio # <--- AGREGADO
-import json # <--- AGREGADO para el payload MQTT
+import aiomqtt,ssl
+import asyncio
 
 logging.basicConfig(format='%(asctime)s - CRUD - %(levelname)s - %(message)s', level=logging.INFO)
 
@@ -41,6 +40,27 @@ def require_login(f):
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
+
+@app.route('/')
+@require_login
+def index():
+    theme = request.args.get("theme", "light")
+    cur = mysql.connection.cursor()
+    
+    # Obtener contactos
+    cur.execute('SELECT * FROM contactos')
+    datos_contactos = cur.fetchall()
+    
+    try:
+        cur.execute('SELECT DISTINCT sensor_id FROM sensores_remotos.mediciones')
+        nodos_mqtt = cur.fetchall()
+    except Exception as e:
+        logging.error(f"Error al obtener nodos MQTT: {e}")
+        nodos_mqtt = []
+        flash("No se pudieron cargar los nodos para MQTT.", "warning")
+        
+    cur.close()
+    return render_template('index.html', contactos=datos_contactos, nodos_mqtt=nodos_mqtt, theme=theme)
 
 @app.route("/registrar", methods=["GET", "POST"])
 def registrar():
@@ -100,14 +120,15 @@ def logout():
     return redirect(url_for('login')) # Redirigir a login tras logout
 
 
-# --- NUEVA RUTA PARA COMANDOS MQTT ---
 @app.route('/send_mqtt_command', methods=['POST'])
 @require_login
 def send_mqtt_command():
+    theme = request.args.get('theme') or request.form.get('theme') or 'light'
+
     if not all([MQTT_SERVER, MQTT_USERNAME, MQTT_PASSWORD, MQTT_PORT]):
         flash("La configuración MQTT no está completa en el servidor.", "danger")
         logging.error("Faltan variables de entorno para la conexión MQTT.")
-        return redirect(url_for('index'))
+        return redirect(url_for('index', theme=theme))
 
     selected_node = request.form.get('nodo_seleccionado')
     command_type = request.form.get('comando_mqtt')
@@ -116,17 +137,17 @@ def send_mqtt_command():
 
     if not selected_node or not command_type:
         flash("Debe seleccionar un nodo y un tipo de comando.", "warning")
-        return redirect(url_for('index'))
+        return redirect(url_for('index', theme=theme))
 
     if command_type == "setpoint":
         if not setpoint_value:
             flash("Debe indicar un valor para Setpoint.", "warning")
-            return redirect(url_for('index'))
+            return redirect(url_for('index', theme=theme))
         try:
             data = int(setpoint_value)
         except ValueError:
             flash("El valor de Setpoint debe ser un número entero.", "warning")
-            return redirect(url_for('index'))
+            return redirect(url_for('index', theme=theme))
 
 
     tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -156,7 +177,7 @@ def send_mqtt_command():
         flash(f"Error inesperado: {e}", "danger")
         logging.error(f"Error inesperado: {e}")
 
-    return redirect(url_for('index'))
+    return redirect(url_for('index', theme=theme))
 
 
 if __name__ == '__main__':

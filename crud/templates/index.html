@@ -3,6 +3,7 @@
   <div class="col-md-7 mx-auto">
     <div class="card card-body">
       <form action="{{ url_for('send_mqtt_command') }}" method="POST" id="mqttCommandForm">
+        <input type="hidden" name="theme" value="{{ theme }}">
         <legend>Enviar Comando MQTT</legend>
         
         <div class="form-group mb-3">
@@ -44,11 +45,11 @@
     comandoSelect.addEventListener('change', function() {
       if (this.value === 'setpoint') {
         setpointDiv.style.display = 'block';
-        setpointInput.required = true; // Hacerlo requerido si es visible
+        setpointInput.required = true; 
       } else {
         setpointDiv.style.display = 'none';
-        setpointInput.required = false; // No requerido si está oculto
-        setpointInput.value = ''; // Limpiar valor si se oculta
+        setpointInput.required = false; 
+        setpointInput.value = ''; 
       }
     });
   });
